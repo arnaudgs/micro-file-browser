@@ -152,7 +152,12 @@ async function ffmpegThumb(absPath: string, isVideo: boolean): Promise<Uint8Arra
 
 const thumbCache = new Map<string, Uint8Array>();
 
-const HTML_PATH = new URL("./index.html", import.meta.url).pathname;
+const STATIC: Record<string, string> = {
+  "/": new URL("./index.html", import.meta.url).pathname,
+  "/index.html": new URL("./index.html", import.meta.url).pathname,
+  "/style.css": new URL("./style.css", import.meta.url).pathname,
+  "/app.js": new URL("./app.js", import.meta.url).pathname,
+};
 
 const server = Bun.serve({
   port: PORT,
@@ -161,9 +166,10 @@ const server = Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     try {
-      if (url.pathname === "/") {
-        return new Response(Bun.file(HTML_PATH), {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
+      if (STATIC[url.pathname]) {
+        const f = STATIC[url.pathname];
+        return new Response(Bun.file(f), {
+          headers: { "Content-Type": MIME[extname(f).toLowerCase()] ?? "application/octet-stream" },
         });
       }
 
