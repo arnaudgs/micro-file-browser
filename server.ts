@@ -150,7 +150,31 @@ async function ffmpegThumb(absPath: string, isVideo: boolean): Promise<Uint8Arra
   });
 }
 
-const thumbCache = new Map<string, Uint8Array>();
+/* ---------- THUMB CACHE (in-memory, binary, FIFO eviction) ---------- */
+const THUMB_CACHE_MAX_ENTRIES = 2000;
+const THUMB_CACHE_MAX_BYTES = 256 * 1024 * 1024; // 256 MB
+const thumbCache = new Map<string, Uint8Array>(); // insertion order = FIFO
+let thumbCacheBytes = 0;
+// In-flight dedup: if two requests for the same key arrive concurrently,
+// only spawn ffmpeg once.
+const thumbInFlight = new Map<string, Promise<Uint8Array | null>>();
+
+function thumbCachePut(key: string, buf: Uint8Array) {
+  thumbCache.set(key, buf);
+  thumbCacheBytes += buf.byteLength;
+  while (
+    (thumbCache.size > THUMB_CACHE_MAX_ENTRIES || thumbCacheBytes > THUMB_CACHE_MAX_BYTES) &&
+    thumbCache.size > 0
+  ) {
+    const firstKey = thumbCache.keys().next().value as string;
+    const v = thumbCache.get(firstKey)!;
+    thumbCache.delete(firstKey);
+    thumbCacheBytes -= v.byteLength;
+  }
+}
+function thumbCacheStats() {
+  return { entries: thumbCache.size, bytes: thumbCacheBytes };
+}
 
 const STATIC: Record<string, string> = {
   "/": new URL("./index.html", import.meta.url).pathname,
@@ -204,19 +228,51 @@ const server = Bun.serve({
         const abs = safePath(p);
         const s = await stat(abs);
         const kind = kindOf(basename(abs));
+        const ext = extname(abs).toLowerCase();
+
+        // SVG: tiny vector, no point generating a raster thumb — serve as-is
+        if (ext === ".svg") {
+          return rangeResponse(abs, s.size, null, mimeFor(abs));
+        }
+
+        if (kind !== "image" && kind !== "video") {
+          return new Response("No thumb", { status: 404 });
+        }
+
         const cacheKey = `${abs}:${s.mtimeMs}:${s.size}`;
         const cached = thumbCache.get(cacheKey);
         if (cached) {
-          return new Response(cached, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=31536000" } });
+          return new Response(cached, {
+            headers: {
+              "Content-Type": "image/jpeg",
+              "Cache-Control": "public, max-age=31536000",
+              "X-Thumb-Cache": "HIT",
+            },
+          });
         }
-        if (kind === "image" && extname(abs).toLowerCase() !== ".heic" && extname(abs).toLowerCase() !== ".avif") {
-          // Just serve original scaled by browser for small images
-          return rangeResponse(abs, s.size, null, mimeFor(abs));
+
+        // Dedup concurrent requests for the same thumb
+        let pending = thumbInFlight.get(cacheKey);
+        if (!pending) {
+          pending = ffmpegThumb(abs, kind === "video").finally(() => {
+            thumbInFlight.delete(cacheKey);
+          });
+          thumbInFlight.set(cacheKey, pending);
         }
-        const buf = await ffmpegThumb(abs, kind === "video");
+        const buf = await pending;
         if (!buf) return new Response("No thumb", { status: 404 });
-        thumbCache.set(cacheKey, buf);
-        return new Response(buf, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=31536000" } });
+        thumbCachePut(cacheKey, buf);
+        return new Response(buf, {
+          headers: {
+            "Content-Type": "image/jpeg",
+            "Cache-Control": "public, max-age=31536000",
+            "X-Thumb-Cache": "MISS",
+          },
+        });
+      }
+
+      if (url.pathname === "/api/cache-stats") {
+        return Response.json(thumbCacheStats());
       }
 
       // Transcoded video stream (HLS-free, on the fly to fragmented mp4) for codecs the browser can't play natively
