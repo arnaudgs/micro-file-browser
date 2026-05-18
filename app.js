@@ -2,6 +2,8 @@ const main = document.getElementById("main");
 const crumbs = document.getElementById("crumbs");
 const bList = document.getElementById("bList");
 const bGrid = document.getElementById("bGrid");
+const sizeCtrl = document.getElementById("sizeCtrl");
+const thumbSize = document.getElementById("thumbSize");
 
 let mode = localStorage.getItem("fb.mode") || "grid";
 let current = { path: "", items: [] };
@@ -13,10 +15,24 @@ function setMode(m) {
   localStorage.setItem("fb.mode", m);
   bList.classList.toggle("on", m === "list");
   bGrid.classList.toggle("on", m === "grid");
+  sizeCtrl.classList.toggle("hidden", m !== "grid");
   render();
 }
 bList.onclick = () => setMode("list");
 bGrid.onclick = () => setMode("grid");
+
+/* ---------- THUMB SIZE ---------- */
+function applyThumbSize(px) {
+  document.documentElement.style.setProperty("--thumb-size", px + "px");
+}
+const savedSize = parseInt(localStorage.getItem("fb.thumbSize") || "180", 10);
+thumbSize.value = String(savedSize);
+applyThumbSize(savedSize);
+thumbSize.addEventListener("input", () => {
+  const v = parseInt(thumbSize.value, 10);
+  applyThumbSize(v);
+  localStorage.setItem("fb.thumbSize", String(v));
+});
 
 function fmtSize(n) {
   if (!n) return "";
