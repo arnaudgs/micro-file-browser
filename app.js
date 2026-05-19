@@ -36,14 +36,18 @@ thumbSize.addEventListener("input", () => {
 
 function fmtSize(n) {
   if (!n) return "";
-  const u = ["B","KB","MB","GB","TB"];
-  let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) {
+    n /= 1024;
+    i++;
+  }
   return n.toFixed(n < 10 && i ? 1 : 0) + " " + u[i];
 }
 function fmtDate(ms) {
   if (!ms) return "";
   const d = new Date(ms);
-  return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+  return d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 function iconFor(it) {
   if (it.isDir) return "📁";
@@ -52,13 +56,18 @@ function iconFor(it) {
   if (it.kind === "audio") return "🎵";
   return "📄";
 }
-function encPath(p) { return encodeURIComponent(p); }
+function encPath(p) {
+  return encodeURIComponent(p);
+}
 
 async function load(path) {
   const r = await fetch("/api/list?path=" + encPath(path || ""));
-  if (!r.ok) { main.innerHTML = '<div class="empty">'+await r.text()+'</div>'; return false; }
+  if (!r.ok) {
+    main.innerHTML = '<div class="empty">' + (await r.text()) + "</div>";
+    return false;
+  }
   current = await r.json();
-  mediaList = current.items.filter(i => i.kind === "image" || i.kind === "video");
+  mediaList = current.items.filter((i) => i.kind === "image" || i.kind === "video");
   renderCrumbs();
   render();
   return true;
@@ -113,11 +122,13 @@ function renderCrumbs() {
   parts.forEach((p, i) => {
     if (i > 0) {
       const sep = document.createElement("span");
-      sep.className = "sep"; sep.textContent = "/";
+      sep.className = "sep";
+      sep.textContent = "/";
       crumbs.appendChild(sep);
     }
     const a = document.createElement("span");
-    a.className = "seg"; a.textContent = p.name;
+    a.className = "seg";
+    a.textContent = p.name;
     a.onclick = () => navigateTo(p.path);
     crumbs.appendChild(a);
   });
@@ -135,7 +146,7 @@ function render() {
 function renderList() {
   const el = document.createElement("div");
   el.className = "list";
-  current.items.forEach(it => {
+  current.items.forEach((it) => {
     const row = document.createElement("div");
     row.className = "row";
     row.innerHTML = `
@@ -153,7 +164,7 @@ function renderList() {
 function renderGrid() {
   const el = document.createElement("div");
   el.className = "grid";
-  current.items.forEach(it => {
+  current.items.forEach((it) => {
     const tile = document.createElement("div");
     tile.className = "tile";
     const thumb = document.createElement("div");
@@ -162,11 +173,14 @@ function renderGrid() {
       const img = document.createElement("img");
       img.loading = "lazy";
       img.src = "/api/thumb?path=" + encPath(it.path);
-      img.onerror = () => { thumb.innerHTML = iconFor(it); };
+      img.onerror = () => {
+        thumb.innerHTML = iconFor(it);
+      };
       thumb.appendChild(img);
       if (it.kind === "video") {
         const b = document.createElement("span");
-        b.className = "badge"; b.textContent = "VIDEO";
+        b.className = "badge";
+        b.textContent = "VIDEO";
         thumb.appendChild(b);
       }
     } else {
@@ -185,9 +199,12 @@ function renderGrid() {
 }
 
 function activate(it) {
-  if (it.isDir) { navigateTo(it.path); return; }
+  if (it.isDir) {
+    navigateTo(it.path);
+    return;
+  }
   if (it.kind === "image" || it.kind === "video") {
-    const idx = mediaList.findIndex(m => m.path === it.path);
+    const idx = mediaList.findIndex((m) => m.path === it.path);
     if (idx >= 0) openViewer(idx);
   } else {
     // download / open file directly
@@ -274,7 +291,8 @@ function exitFs() {
   if (fn) return fn.call(document).catch(() => {});
 }
 function toggleFullscreen() {
-  if (isFs()) exitFs(); else enterFs(viewerEl);
+  if (isFs()) exitFs();
+  else enterFs(viewerEl);
 }
 function updateFsBtn() {
   const btn = viewerEl && viewerEl.querySelector("#vFs");
@@ -293,8 +311,7 @@ function showCurrent() {
   const it = mediaList[viewIndex];
   if (!it) return;
   document.getElementById("vTitle").textContent = it.name;
-  document.getElementById("vInfo").textContent =
-    (viewIndex + 1) + " / " + mediaList.length + "  •  " + fmtSize(it.size);
+  document.getElementById("vInfo").textContent = viewIndex + 1 + " / " + mediaList.length + "  •  " + fmtSize(it.size);
   const c = document.getElementById("vContent");
   c.innerHTML = "";
   if (it.kind === "image") {
@@ -309,7 +326,7 @@ function showCurrent() {
     v.preload = "metadata";
     v.playsInline = true;
     const ext = it.name.split(".").pop().toLowerCase();
-    const browserNative = ["mp4","webm","m4v","mov","ogg","ogv"];
+    const browserNative = ["mp4", "webm", "m4v", "mov", "ogg", "ogv"];
     if (browserNative.includes(ext)) {
       v.src = "/api/file?path=" + encPath(it.path);
     } else {
@@ -321,11 +338,15 @@ function showCurrent() {
       if (!v.dataset.fallback) {
         v.dataset.fallback = "1";
         v.src = "/api/transcode?path=" + encPath(it.path);
-        v.load(); v.play().catch(()=>{});
+        v.load();
+        v.play().catch(() => {});
       }
     });
     // Double-click (desktop) toggles fullscreen on the viewer
-    v.addEventListener("dblclick", (e) => { e.preventDefault(); toggleFullscreen(); });
+    v.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      toggleFullscreen();
+    });
     // Double-tap (touch) — dblclick is unreliable on iOS for <video>
     let lastTap = 0;
     v.addEventListener("touchend", (e) => {
@@ -348,18 +369,22 @@ document.addEventListener("keydown", (e) => {
     // If we're in fullscreen, the browser will handle ESC to exit fullscreen.
     // Only close the viewer when not in fullscreen.
     if (!isFs()) closeViewer();
-  }
-  else if (e.key === "ArrowRight") step(1);
+  } else if (e.key === "ArrowRight") step(1);
   else if (e.key === "ArrowLeft") step(-1);
-  else if (e.key === "f" || e.key === "F") { e.preventDefault(); toggleFullscreen(); }
-  else if (e.key === " ") {
+  else if (e.key === "f" || e.key === "F") {
+    e.preventDefault();
+    toggleFullscreen();
+  } else if (e.key === " ") {
     const v = viewerEl.querySelector("video");
-    if (v) { e.preventDefault(); v.paused ? v.play() : v.pause(); }
+    if (v) {
+      e.preventDefault();
+      v.paused ? v.play() : v.pause();
+    }
   }
 });
 
 function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
 // initial
