@@ -49,6 +49,14 @@ main{padding:14px}
 .list .row:hover{background:#1a1d24}
 .list .row .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .list .row .size, .list .row .date{color:var(--muted);font-size:12px;text-align:right}
+
+/* Mobile: name takes the full width (wraps), only size kept, date hidden */
+@media (max-width: 640px) {
+  .list .row{grid-template-columns:24px 1fr auto;gap:8px;padding:10px 12px}
+  .list .row .name{white-space:normal;word-break:break-word;overflow:visible;text-overflow:clip}
+  .list .row .date{display:none}
+  .list .row .size{font-size:11px;white-space:nowrap}
+}
 .icon{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:16px}
 
 /* GRID */
