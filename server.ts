@@ -15,13 +15,61 @@ function lanIPs(): string[] {
   return out;
 }
 
-const rootArg = process.argv[2];
+/* ---------- CLI PARSING ---------- */
+function parseArgs(argv: string[]) {
+  const positional: string[] = [];
+  let password = "";
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "-p" || a === "--password") {
+      password = argv[++i] ?? "";
+    } else if (a.startsWith("--password=")) {
+      password = a.slice("--password=".length);
+    } else if (a === "-h" || a === "--help") {
+      console.log("Usage: bun server.ts <root-folder> [port] [-p <password>]");
+      process.exit(0);
+    } else {
+      positional.push(a);
+    }
+  }
+  return { positional, password };
+}
+const { positional, password: cliPassword } = parseArgs(process.argv.slice(2));
+const rootArg = positional[0];
 if (!rootArg) {
-  console.error("Usage: bun server.ts <root-folder> [port]");
+  console.error("Usage: bun server.ts <root-folder> [port] [-p <password>]");
   process.exit(1);
 }
 const ROOT = resolve(rootArg);
-const PORT = parseInt(process.argv[3] ?? "3000", 10);
+const PORT = parseInt(positional[1] ?? "3000", 10);
+const PASSWORD = cliPassword || process.env.MFB_PASSWORD || "";
+
+/* ---------- AUTH (HTTP Basic, optional) ---------- */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+function checkAuth(req: Request): boolean {
+  if (!PASSWORD) return true;
+  const h = req.headers.get("authorization");
+  if (!h || !h.toLowerCase().startsWith("basic ")) return false;
+  try {
+    const decoded = atob(h.slice(6).trim());
+    const idx = decoded.indexOf(":");
+    if (idx < 0) return false;
+    return timingSafeEqual(decoded.slice(idx + 1), PASSWORD);
+  } catch {
+    return false;
+  }
+}
+function authChallenge(): Response {
+  return new Response("Authentication required", {
+    status: 401,
+    headers: { "WWW-Authenticate": 'Basic realm="micro-file-browser"' },
+  });
+}
 
 const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif", ".heic"]);
 const VIDEO_EXTS = new Set([".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".flv", ".wmv", ".mpg", ".mpeg"]);
@@ -32,16 +80,35 @@ const MIME: Record<string, string> = {
   ".js": "application/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-  ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
-  ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
-  ".svg": "image/svg+xml", ".avif": "image/avif", ".heic": "image/heic",
-  ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
-  ".mkv": "video/x-matroska", ".avi": "video/x-msvideo", ".m4v": "video/mp4",
-  ".ts": "video/mp2t", ".mpg": "video/mpeg", ".mpeg": "video/mpeg",
-  ".flv": "video/x-flv", ".wmv": "video/x-ms-wmv",
-  ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg",
-  ".flac": "audio/flac", ".m4a": "audio/mp4", ".aac": "audio/aac", ".opus": "audio/opus",
-  ".pdf": "application/pdf", ".txt": "text/plain; charset=utf-8",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".svg": "image/svg+xml",
+  ".avif": "image/avif",
+  ".heic": "image/heic",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".mkv": "video/x-matroska",
+  ".avi": "video/x-msvideo",
+  ".m4v": "video/mp4",
+  ".ts": "video/mp2t",
+  ".mpg": "video/mpeg",
+  ".mpeg": "video/mpeg",
+  ".flv": "video/x-flv",
+  ".wmv": "video/x-ms-wmv",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".flac": "audio/flac",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".opus": "audio/opus",
+  ".pdf": "application/pdf",
+  ".txt": "text/plain; charset=utf-8",
 };
 
 function kindOf(name: string): "dir" | "image" | "video" | "audio" | "file" {
@@ -72,7 +139,8 @@ async function listDir(absPath: string) {
   for (const e of entries) {
     if (e.name.startsWith(".")) continue;
     const full = join(absPath, e.name);
-    let size = 0, mtime = 0;
+    let size = 0,
+      mtime = 0;
     try {
       const s = await stat(full);
       size = s.size;
@@ -83,7 +151,8 @@ async function listDir(absPath: string) {
       path: relFromRoot(full),
       isDir: e.isDirectory(),
       kind: e.isDirectory() ? "dir" : kindOf(e.name),
-      size, mtime,
+      size,
+      mtime,
     });
   }
   out.sort((a, b) => {
@@ -162,10 +231,7 @@ const thumbInFlight = new Map<string, Promise<Uint8Array | null>>();
 function thumbCachePut(key: string, buf: Uint8Array) {
   thumbCache.set(key, buf);
   thumbCacheBytes += buf.byteLength;
-  while (
-    (thumbCache.size > THUMB_CACHE_MAX_ENTRIES || thumbCacheBytes > THUMB_CACHE_MAX_BYTES) &&
-    thumbCache.size > 0
-  ) {
+  while ((thumbCache.size > THUMB_CACHE_MAX_ENTRIES || thumbCacheBytes > THUMB_CACHE_MAX_BYTES) && thumbCache.size > 0) {
     const firstKey = thumbCache.keys().next().value as string;
     const v = thumbCache.get(firstKey)!;
     thumbCache.delete(firstKey);
@@ -188,6 +254,7 @@ const server = Bun.serve({
   hostname: "0.0.0.0",
   idleTimeout: 0,
   async fetch(req) {
+    if (!checkAuth(req)) return authChallenge();
     const url = new URL(req.url);
     try {
       if (STATIC[url.pathname]) {
@@ -281,20 +348,42 @@ const server = Bun.serve({
         const abs = safePath(p);
         // Pipe ffmpeg to fragmented MP4 (h264 + aac). Browser plays as video/mp4 via MSE/native.
         const args = [
-          "-i", abs,
-          "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-          "-c:a", "aac", "-ac", "2",
-          "-movflags", "frag_keyframe+empty_moov+default_base_moof",
-          "-f", "mp4", "pipe:1",
+          "-i",
+          abs,
+          "-c:v",
+          "libx264",
+          "-preset",
+          "ultrafast",
+          "-tune",
+          "zerolatency",
+          "-c:a",
+          "aac",
+          "-ac",
+          "2",
+          "-movflags",
+          "frag_keyframe+empty_moov+default_base_moof",
+          "-f",
+          "mp4",
+          "pipe:1",
         ];
         const child = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "ignore"] });
         const stream = new ReadableStream({
           start(controller) {
             child.stdout.on("data", (c) => controller.enqueue(c));
-            child.stdout.on("end", () => { try { controller.close(); } catch {} });
-            child.on("error", () => { try { controller.close(); } catch {} });
+            child.stdout.on("end", () => {
+              try {
+                controller.close();
+              } catch {}
+            });
+            child.on("error", () => {
+              try {
+                controller.close();
+              } catch {}
+            });
           },
-          cancel() { child.kill("SIGKILL"); },
+          cancel() {
+            child.kill("SIGKILL");
+          },
         });
         return new Response(stream, {
           headers: { "Content-Type": "video/mp4", "Cache-Control": "no-cache" },
@@ -310,6 +399,7 @@ const server = Bun.serve({
 
 console.log(`📁 micro-file-browser`);
 console.log(`   root:  ${ROOT}`);
+console.log(`   auth:  ${PASSWORD ? "🔒 password required" : "open (no password)"}`);
 console.log(`   local: http://localhost:${server.port}`);
 for (const ip of lanIPs()) {
   console.log(`   lan:   http://${ip}:${server.port}`);

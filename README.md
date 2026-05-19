@@ -28,9 +28,13 @@ No npm dependencies. Single TypeScript file for the server, single HTML file for
 git clone https://github.com/arnaudgs/micro-file-browser.git
 cd micro-file-browser
 
-bun server.ts /path/to/folder         # default port 3000
-bun server.ts /path/to/folder 8080    # custom port
+bun server.ts /path/to/folder                       # default port 3000, open
+bun server.ts /path/to/folder 8080                  # custom port
+bun server.ts /path/to/folder 8080 -p hunter2       # require password (HTTP Basic auth)
+MFB_PASSWORD=hunter2 bun server.ts /path/to/folder  # password via env var
 ```
+
+When a password is set, the browser prompts for HTTP Basic credentials on first visit (any username works). Without `-p` / `MFB_PASSWORD`, the server is open.
 
 The server prints both the local URL and any LAN IPs:
 
